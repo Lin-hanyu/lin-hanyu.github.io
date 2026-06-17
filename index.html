@@ -236,6 +236,21 @@
     box-shadow: 2px 3px 8px rgba(0,0,0,0.15);
     transform: translateY(-1px);
   }
+  .btn-copy {
+    font-family: 'Ancient', 'KaiTi', 'STKaiti', serif !important;
+    font-size: 14px !important;
+    letter-spacing: 1px;
+    background: #d4c5a9 !important;
+    border: 1px solid #8b7355 !important;
+    color: #3a2a1a !important;
+    border-radius: 3px !important;
+    padding: 6px 16px !important;
+    cursor: pointer !important;
+  }
+  .btn-copy:hover {
+    background: #c8b896 !important;
+    color: #1a0a00 !important;
+  }
   .btn-back {
     font-family: 'Ancient', 'KaiTi', 'STKaiti', serif !important;
     font-size: 15px !important;
@@ -494,11 +509,16 @@
         <br>
       </div>
       <div id="roomJoinArea" style="display:none; margin-top:12px;">
-        <input type="text" id="roomCodeInput" placeholder="输入6位房间码" maxlength="6" style="width:130px;text-transform:uppercase;color:#333;caret-color:#333;">
-        <br><button class="btn btn-start" onclick="game.joinRoom()">加入</button>
+        <textarea id="offerInput" placeholder="在此粘贴房主发来的连接信息" style="width:90%;height:60px;font-size:10px;color:#333;resize:none;background:#f5f0e8;"></textarea>
+        <br><button class="btn btn-start" onclick="game.joinRoom()">连接</button>
       </div>
+      <div id="answerDisplayArea" style="display:none; margin-top:12px;">
+        <p style="font-size:12px;color:#A0522D;">将下面的连接信息发给房主：</p>
+        <textarea id="answerText" readonly style="width:90%;height:60px;font-size:10px;color:#333;resize:none;background:#f5f0e8;"></textarea>
+        <br><button class="btn btn-copy" onclick="game.copyAnswer()" style="margin-right:4px;">复制</button>
+      </div>
+      <div id="hostExchangeArea" style="display:none; margin-top:8px;"></div>
       <div id="lobbyStatus" class="lobby-status"></div>
-      <div id="roomCodeDisplay" class="room-code" style="display:none;"></div>
       <br>
       <button class="btn btn-back" onclick="game.leaveLobby()">返回</button>
     </div>
@@ -571,7 +591,6 @@
   <div id="touchHint">长按拖拽出兵</div>
 </div>
 
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 // ==================== 移动端检测 ====================
 var _sw = window.innerWidth || screen.width || 375;
@@ -726,100 +745,130 @@ function pointOnMountain(px, py, mtn) {
   return inside;
 }
 
-// ==================== 联机网络层 ====================
+// ==================== 联机网络层（WebRTC 手动信令，无需服务器） ====================
+const RTC_ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'], username: 'openrelayproject', credential: 'openrelayproject' }
+  ]
+};
+
 class NetworkManager {
   constructor() {
-    this.peer = null;
-    this.conns = [];       // 房主：多个连接；加入者：单连接
-    this.roomId = null;
-    this.isHost = false;
     this.myName = '';
-    this.playerCount = 0;  // 已连接玩家数（含自己）
-    this.onDataCallback = null;
-    this.onConnectedCallback = null;
-    this.onDisconnectedCallback = null;
-  }
-
-  async createRoom(name) {
-    this.myName = name;
-    this.isHost = true;
-    this.roomId = this._genCode();
-    this.peer = new Peer('pw-' + this.roomId, { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'], username: 'openrelayproject', credential: 'openrelayproject' }] } });
-    return new Promise((resolve, reject) => {
-      this.peer.on('open', () => { this.playerCount = 1; resolve(this.roomId); });
-      this.peer.on('error', (err) => reject(err));
-      this.peer.on('connection', (conn) => {
-        conn.on('open', () => {
-          this.conns.push(conn);
-          this._setupConn(conn);
-          conn.send({ type: 'hello', name: this.myName });
-          this.playerCount = this.conns.length + 1;
-          if (this.onConnectedCallback) this.onConnectedCallback(conn);
-        });
-      });
-    });
-  }
-
-  async joinRoom(code, name) {
-    this.myName = name;
     this.isHost = false;
-    this.roomId = code.toUpperCase();
-    this.peer = new Peer('pw-join-' + this.roomId + '-' + Date.now(), { debug: 0, config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'], username: 'openrelayproject', credential: 'openrelayproject' }] } });
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => { reject(new Error('连接超时，请检查房间码')); }, 30000);
-      this.peer.on('open', () => {
-        const conn = this.peer.connect('pw-' + this.roomId, { reliable: true });
-        this.conns = [conn];
-        conn.on('open', () => {
-          clearTimeout(timeout);
-          this._setupConn(conn);
-          conn.send({ type: 'hello', name: this.myName });
-          resolve();
-        });
-        conn.on('error', (err) => { clearTimeout(timeout); reject(err); });
-      });
-      this.peer.on('error', (err) => { clearTimeout(timeout); reject(err); });
-    });
+    this.peers = [];         // [{ pc, dc, connected }] ，房主多个，加入者1个
+    this.onDataCallback = null;
+    this.onConnectedCallback = null;   // cb(peerIndex)
+    this.onDisconnectedCallback = null; // cb(peerIndex)
   }
 
-  _setupConn(conn) {
-    let connectedFired = false;
-    conn.on('data', (data) => {
-      if ((data.type === 'hello' || data.type === 'map') && !connectedFired) {
-        connectedFired = true;
-        if (this.onConnectedCallback) this.onConnectedCallback();
-        return;
+  get connectedPeers() {
+    return this.peers.filter(p => p.connected).length;
+  }
+  get totalConnected() {
+    return 1 + this.connectedPeers; // 含自己
+  }
+
+  // 房主：为一个新的加入者生成 offer，返回 { offer, index }
+  async createOffer() {
+    this.isHost = true;
+    const idx = this.peers.length;
+    const pc = new RTCPeerConnection(RTC_ICE_SERVERS);
+    const dc = pc.createDataChannel('game', { ordered: true });
+    const peer = { pc, dc, connected: false, index: idx };
+    this.peers.push(peer);
+    this._setupDC(peer, idx);
+    this._setupICEFn(pc, idx);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await this._waitForIceGathering(pc);
+    return { offer: JSON.stringify(pc.localDescription), index: idx };
+  }
+
+  // 加入者：用房主的 offer 生成 answer
+  async createAnswer(offerStr) {
+    this.isHost = false;
+    const offer = JSON.parse(offerStr);
+    const pc = new RTCPeerConnection(RTC_ICE_SERVERS);
+    const peer = { pc, dc: null, connected: false, index: 0 };
+    this.peers = [peer];
+    pc.ondatachannel = (e) => {
+      peer.dc = e.channel;
+      this._setupDC(peer, 0);
+    };
+    this._setupICEFn(pc, 0);
+    await pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await this._waitForIceGathering(pc);
+    return JSON.stringify(pc.localDescription);
+  }
+
+  // 房主：用加入者的 answer 完成连接，index 指定是哪个 peer
+  async applyAnswer(answerStr, index) {
+    const peer = this.peers[index];
+    if (!peer) throw new Error('无效的连接索引');
+    const answer = JSON.parse(answerStr);
+    await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+  }
+
+  _setupDC(peer, idx) {
+    peer.dc.onopen = () => {
+      peer.connected = true;
+      if (this.onConnectedCallback) this.onConnectedCallback(idx);
+    };
+    peer.dc.onclose = () => {
+      peer.connected = false;
+      if (this.onDisconnectedCallback) this.onDisconnectedCallback(idx);
+    };
+    peer.dc.onmessage = (e) => {
+      if (this.onDataCallback) this.onDataCallback(JSON.parse(e.data), idx);
+    };
+  }
+
+  _setupICEFn(pc, idx) {
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+        const peer = this.peers[idx];
+        if (peer && peer.connected && this.onDisconnectedCallback) {
+          peer.connected = false;
+          this.onDisconnectedCallback(idx);
+        }
       }
-      if (this.onDataCallback) this.onDataCallback(data, conn);
-    });
-    conn.on('close', () => {
-      this.conns = this.conns.filter(c => c !== conn);
-      this.playerCount = this.isHost ? this.conns.length + 1 : 0;
-      if (this.onDisconnectedCallback) this.onDisconnectedCallback();
+    };
+  }
+
+  _waitForIceGathering(pc) {
+    return new Promise((resolve) => {
+      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') resolve();
+      };
+      setTimeout(resolve, 5000);
     });
   }
 
-  send(data, excludeConn) {
-    for (const conn of this.conns) {
-      if (conn && conn.open && conn !== excludeConn) conn.send(data);
+  // 发送数据。excludeIndex：不发给该索引的 peer（用于 host relay 避免回路）
+  send(data, excludeIndex) {
+    for (const peer of this.peers) {
+      if (peer.connected && peer.dc && peer.dc.readyState === 'open' && peer.index !== excludeIndex) {
+        peer.dc.send(JSON.stringify(data));
+      }
     }
   }
 
   onConnected(cb) { this.onConnectedCallback = cb; }
-  onData(cb) { this.onDataCallback = cb; }  // cb(data, sourceConn)
+  onData(cb) { this.onDataCallback = cb; }
   onDisconnected(cb) { this.onDisconnectedCallback = cb; }
 
   disconnect() {
-    for (const conn of this.conns) { if (conn) conn.close(); }
-    this.conns = [];
-    if (this.peer) { this.peer.destroy(); this.peer = null; }
-  }
-
-  _genCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let s = '';
-    for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
-    return s;
+    for (const peer of this.peers) {
+      if (peer.dc) peer.dc.close();
+      if (peer.pc) peer.pc.close();
+    }
+    this.peers = [];
   }
 }
 
@@ -950,8 +999,7 @@ class Game {
       this.selectAIHumanCount(1);
     } else if (mode === 'online') {
       document.getElementById('onlineLobbyScreen').style.display = 'block';
-      document.getElementById('roomCodeDisplay').style.display = 'none';
-      document.getElementById('lobbyStatus').textContent = '房主创建房间，或输入房间码加入（当前最多2真人）';
+      document.getElementById('lobbyStatus').textContent = '房主创建房间→生成连接信息→发给对方→对方粘贴连接';
       this.onlineTotalPlayers = 2;
       this.onlineAICount = 0;
       this.selectOnlinePlayerCount(2);
@@ -1015,60 +1063,36 @@ class Game {
       return;
     }
     const name = document.getElementById('onlineNameInput').value.trim() || '玩家';
-    document.getElementById('lobbyStatus').textContent = '正在创建房间...';
+    document.getElementById('lobbyStatus').textContent = '正在生成连接信息...';
     try {
       this.network = new NetworkManager();
-      const code = await this.network.createRoom(name);
+      this.network.myName = name;
       this.myPlayerIndex = 0;
-      document.getElementById('roomCodeDisplay').textContent = code;
-      document.getElementById('roomCodeDisplay').style.display = 'block';
+      // 为每个加入者生成一个 offer
+      const joinerCount = this.onlineTotalPlayers - 1;
+      this._hostOffers = [];
+      for (let i = 0; i < joinerCount; i++) {
+        const { offer, index } = await this.network.createOffer();
+        this._hostOffers.push({ offer, index, peerIdx: index, connected: false });
+      }
+      // 隐藏设置，显示动态交换区域
+      document.getElementById('onlineNameRow').style.display = 'none';
+      document.getElementById('onlineSetupChoices').style.display = 'none';
       document.getElementById('onlineCreateBtn').style.display = 'none';
-      document.getElementById('lobbyStatus').textContent = '等待玩家加入...（1/' + this.onlineTotalPlayers + ' 人，告知对方房间码）';
-      const needed = this.onlineTotalPlayers;
-      this._onlineJoinCount = 1;
-      this.network.onConnected((conn) => {
-        this._onlineJoinCount = this.network.playerCount;
-        const lastConn = conn || this.network.conns[this.network.conns.length - 1];
-        // 给新加入者发送其 playerIndex
-        const yourIdx = this._onlineJoinCount - 1; // 第1个加入者=1, 第2个=2
-        if (lastConn) {
-          lastConn.send({ type: 'room_info', current: this._onlineJoinCount, total: needed, yourIndex: yourIdx });
+      this._buildHostExchangeUI();
+      this._setupOnlineDataHandler();
+      // 监听玩家连接
+      this.network.onConnected((peerIdx) => {
+        const o = this._hostOffers.find(x => x.peerIdx === peerIdx);
+        if (o) o.connected = true;
+        document.getElementById('lobbyStatus').textContent = '玩家' + (peerIdx + 2) + ' 已连接！(' + this.network.totalConnected + '/' + this.onlineTotalPlayers + ')';
+        this._buildHostExchangeUI();
+        if (this.network.totalConnected >= this.onlineTotalPlayers) {
+          this._showStartButton();
         }
-        // 通知其他已连接者当前人数（不含yourIndex）
-        for (const c of this.network.conns) {
-          if (c !== lastConn && c.open) {
-            c.send({ type: 'room_info', current: this._onlineJoinCount, total: needed });
-          }
-        }
-        const status = document.getElementById('lobbyStatus');
-        const oldBtn = document.getElementById('btnStartOnline');
-        if (this._onlineJoinCount >= needed) {
-          status.textContent = '人已到齐（' + needed + '/' + needed + '），点击开始';
-          if (oldBtn) oldBtn.remove();
-          const btn = document.createElement('button');
-          btn.id = 'btnStartOnline';
-          btn.className = 'btn btn-start';
-          btn.textContent = '开始游戏';
-          btn.onclick = () => { btn.remove(); this.network.send({ type: 'start_game' }); this.startOnlineGame(); };
-          document.getElementById('onlineLobbyScreen').appendChild(btn);
-        } else {
-          status.textContent = this._onlineJoinCount + '/' + needed + ' 人已加入，等待更多...';
-        }
-      });
-      // 提前设置数据处理器，防止消息丢失
-      this.network.onData((data, srcConn) => {
-        if (data.type === 'map') {
-          this.cities = data.mapData.cities;
-          this.mountains = data.mapData.mountains;
-          this.rivers = data.mapData.rivers;
-          if (data.config) this._onlineConfig = data.config;
-          this._onlineMapReceived = true;
-          return;
-        }
-        if (!this._onlineGameStarted) return;
-        this._handleRemoteAction(data, srcConn);
       });
     } catch (e) {
+      console.error('[createRoom error]', e);
       document.getElementById('lobbyStatus').textContent = '创建失败：' + e.message;
     }
   }
@@ -1076,68 +1100,144 @@ class Game {
   showJoinRoom() {
     document.getElementById('onlineMainButtons').style.display = 'none';
     document.getElementById('onlineCreateBtn').style.display = 'none';
+    document.getElementById('hostExchangeArea').style.display = 'none';
     document.getElementById('onlineNameRow').style.display = '';
     document.getElementById('onlineSetupChoices').style.display = 'none';
     document.getElementById('roomJoinArea').style.display = 'block';
   }
 
   async joinRoom() {
-    const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
-    if (code.length < 4) { document.getElementById('lobbyStatus').textContent = '请输入房间码'; return; }
+    const offerStr = document.getElementById('offerInput').value.trim();
+    if (offerStr.length < 10) { document.getElementById('lobbyStatus').textContent = '请先粘贴房主发来的连接信息'; return; }
     const name = document.getElementById('onlineNameInput').value.trim() || '玩家';
-    document.getElementById('lobbyStatus').textContent = '正在连接房间...';
+    document.getElementById('lobbyStatus').textContent = '正在连接...';
     try {
       this.network = new NetworkManager();
-      await this.network.joinRoom(code, name);
-      this.myPlayerIndex = 1;
-      document.getElementById('lobbyStatus').textContent = '已连接！等待房主开始...';
-      this._onlineJoinCount = 1;
-      this._onlineTotalNeeded = 2;
-      this.myPlayerIndex = 1; // 默认，room_info 会更新
+      this.network.myName = name;
+      await this.network.createAnswer(offerStr);
+      this.myPlayerIndex = 1; // 默认，后续 room_info 更新
+      const answerStr = JSON.stringify(this.network.peers[0].pc.localDescription);
+      document.getElementById('onlineNameRow').style.display = 'none';
+      document.getElementById('roomJoinArea').style.display = 'none';
+      document.getElementById('answerText').value = answerStr;
+      document.getElementById('answerDisplayArea').style.display = '';
+      document.getElementById('lobbyStatus').textContent = '将上面的连接信息发给房主，等待房主确认...';
+      this._setupOnlineDataHandler();
       this.network.onConnected(() => {
-        document.getElementById('lobbyStatus').textContent = '已连接，等待分配位置...';
-      });
-      // 提前设置数据处理器
-      this.network.onData((data, srcConn) => {
-        if (data.type === 'room_info') {
-          this._onlineJoinCount = data.current;
-          this._onlineTotalNeeded = data.total;
-          if (data.yourIndex !== undefined) this.myPlayerIndex = data.yourIndex;
-          document.getElementById('lobbyStatus').textContent = '已加入房间（' + data.current + '/' + data.total + ' 人），等待房主开始...';
-          return;
-        }
-        if (data.type === 'start_game') {
-          this.startOnlineGame();
-          return;
-        }
-        if (data.type === 'map') {
-          this.cities = data.mapData.cities;
-          this.mountains = data.mapData.mountains;
-          this.rivers = data.mapData.rivers;
-          if (data.config) this._onlineConfig = data.config;
-          this._onlineMapReceived = true;
-          return;
-        }
-        if (!this._onlineGameStarted) return;
-        this._handleRemoteAction(data, srcConn);
+        document.getElementById('lobbyStatus').textContent = '已连接！等待房主开始游戏...';
       });
     } catch (e) {
+      console.error('[joinRoom error]', e);
       document.getElementById('lobbyStatus').textContent = '加入失败：' + e.message;
     }
   }
 
+  _buildHostExchangeUI() {
+    const container = document.getElementById('hostExchangeArea');
+    container.style.display = '';
+    let html = '';
+    for (const o of this._hostOffers) {
+      const n = o.peerIdx + 2;
+      if (o.connected) {
+        html += '<p style="color:#4a7c4a;font-size:13px;">✓ 玩家' + n + '已连接</p>';
+      } else {
+        html += '<div style="margin-bottom:8px;border:1px solid #c4b59a;padding:6px;border-radius:3px;">';
+        html += '<p style="font-size:12px;color:#A0522D;margin:0 0 4px 0;">发给玩家' + n + '的连接信息：</p>';
+        html += '<textarea id="offerText_' + o.peerIdx + '" readonly style="width:90%;height:40px;font-size:10px;color:#333;resize:none;background:#f5f0e8;">' + o.offer + '</textarea>';
+        html += '<br><button class="btn btn-copy" onclick="game.copyOffer(' + o.peerIdx + ')" style="margin-right:4px;font-size:12px;">复制</button>';
+        html += '<br><p style="font-size:11px;color:#666;margin:4px 0 2px 0;">粘贴玩家' + n + '的回复：</p>';
+        html += '<textarea id="answerInput_' + o.peerIdx + '" placeholder="粘贴玩家' + n + '回复的连接信息" style="width:90%;height:40px;font-size:10px;color:#333;resize:none;background:#f5f0e8;"></textarea>';
+        html += '<br><button class="btn btn-start" onclick="game.completeConnection(' + o.peerIdx + ')" style="font-size:13px;padding:4px 12px;">确认玩家' + n + '</button>';
+        html += '</div>';
+      }
+    }
+    container.innerHTML = html;
+  }
+
+  copyOffer(idx) {
+    const el = document.getElementById('offerText_' + idx);
+    if (!el) return;
+    el.select();
+    document.execCommand('copy');
+    navigator.clipboard.writeText(el.value).catch(() => {});
+    document.getElementById('lobbyStatus').textContent = '已复制！发给玩家' + (idx + 2) + '吧';
+  }
+
+  async completeConnection(idx) {
+    const answerStr = document.getElementById('answerInput_' + idx).value.trim();
+    if (answerStr.length < 10) { document.getElementById('lobbyStatus').textContent = '请先粘贴玩家' + (idx + 2) + '的连接信息'; return; }
+    document.getElementById('lobbyStatus').textContent = '正在连接玩家' + (idx + 2) + '...';
+    try {
+      await this.network.applyAnswer(answerStr, idx);
+    } catch (e) {
+      console.error('[completeConnection error]', e);
+      document.getElementById('lobbyStatus').textContent = '连接失败：' + e.message;
+    }
+  }
+
+  _showStartButton() {
+    const oldBtn = document.getElementById('btnStartOnline');
+    if (oldBtn) oldBtn.remove();
+    const btn = document.createElement('button');
+    btn.id = 'btnStartOnline';
+    btn.className = 'btn btn-start';
+    btn.textContent = '开始游戏';
+    btn.onclick = () => { btn.remove(); this.network.send({ type: 'start_game' }); this.startOnlineGame(); };
+    document.getElementById('onlineLobbyScreen').appendChild(btn);
+  }
+
+  copyAnswer() {
+    const el = document.getElementById('answerText');
+    el.select();
+    document.execCommand('copy');
+    navigator.clipboard.writeText(el.value).catch(() => {});
+    document.getElementById('lobbyStatus').textContent = '已复制！发给房主吧';
+  }
+
+  _setupOnlineDataHandler() {
+    this.network.onData((data, srcIdx) => {
+      if (data.type === 'start_game') {
+        this.startOnlineGame();
+        return;
+      }
+      if (data.type === 'map') {
+        this.cities = data.mapData.cities;
+        this.mountains = data.mapData.mountains;
+        this.rivers = data.mapData.rivers;
+        if (data.config) this._onlineConfig = data.config;
+        this._onlineMapReceived = true;
+        return;
+      }
+      if (data.type === 'room_info') {
+        if (data.yourIndex !== undefined) this.myPlayerIndex = data.yourIndex;
+        return;
+      }
+      if (!this._onlineGameStarted) return;
+      this._handleRemoteAction(data, srcIdx);
+    });
+    this.network.onDisconnected((peerIdx) => {
+      if (this.state === 'playing') this.setActionText('玩家' + (peerIdx + 2) + '断开连接！');
+    });
+  }
+
   leaveLobby() {
-    // 如果在创建/加入子流程中，返回联机大厅初始界面
     if (document.getElementById('onlineMainButtons').style.display === 'none') {
+      if (this.network) { this.network.disconnect(); this.network = null; }
       document.getElementById('onlineMainButtons').style.display = '';
       document.getElementById('onlineCreateBtn').style.display = 'none';
       document.getElementById('onlineNameRow').style.display = 'none';
       document.getElementById('onlineSetupChoices').style.display = 'none';
       document.getElementById('roomJoinArea').style.display = 'none';
+      document.getElementById('hostExchangeArea').style.display = 'none';
+      document.getElementById('answerDisplayArea').style.display = 'none';
+      document.getElementById('lobbyStatus').textContent = '房主创建房间→生成连接信息→发给对方→对方粘贴连接';
+      this._hostOffers = [];
+      const oldBtn = document.getElementById('btnStartOnline');
+      if (oldBtn) oldBtn.remove();
       return;
     }
-    // 在联机大厅初始界面，返回模式选择
     if (this.network) { this.network.disconnect(); this.network = null; }
+    this._hostOffers = [];
     this.backToModeSelect();
   }
 
@@ -1150,7 +1250,7 @@ class Game {
     this.state = 'playing';
 
     if (this.myPlayerIndex === 0) {
-      // 主机：立即知道配置，初始化玩家并发送地图
+      // 主机：初始化玩家并发送地图
       const total = this.onlineTotalPlayers + this.onlineAICount;
       const aiCount = this.onlineAICount;
       this._initOnlinePlayers(total, aiCount);
@@ -1160,13 +1260,8 @@ class Game {
       this.network.send({ type: 'map', mapData: mapData, name: this.network.myName, config: { total: total, ai: aiCount } });
       this._onlineMapReceived = true;
     } else {
-      // 非主机：等收到 map（含 config）后再初始化玩家
       this._onlineMapReceived = this.cities.length > 0 && !!this._onlineConfig;
     }
-
-    this.network.onDisconnected(() => {
-      if (this.state === 'playing') this.setActionText('对手断开连接！');
-    });
 
     if (this._onlineMapReceived) {
       this._startOnlinePlay();
@@ -1350,11 +1445,11 @@ class Game {
     }
   }
 
-  _handleRemoteAction(data, srcConn) {
+  _handleRemoteAction(data, srcIdx) {
     if (data.type === 'full_state') {
       // 主机：转发给所有其他玩家（排除来源，避免回路）
-      if (this.myPlayerIndex === 0 && srcConn) {
-        this.network.send(data, srcConn);
+      if (this.myPlayerIndex === 0 && srcIdx !== undefined) {
+        this.network.send(data, srcIdx);
       }
       this._applyState(data.state);
       this.currentPlayer = data.currentPlayer;
@@ -1365,7 +1460,7 @@ class Game {
       this._doEmperorPlace(data.player, data.cityId);
       if (this.myPlayerIndex === 0) {
         // 主机：转发给其他玩家（排除来源），继续驱动
-        if (srcConn) this.network.send(data, srcConn);
+        if (srcIdx !== undefined) this.network.send(data, srcIdx);
         this._processEmperors();
       } else {
         this.render();
@@ -1378,7 +1473,7 @@ class Game {
   }
 
   _syncAction(actionData) {
-    if (this.network && this.network.connected && this.currentPlayer === this.myPlayerIndex) {
+    if (this.network && this.network.connectedPeers > 0 && this.currentPlayer === this.myPlayerIndex) {
       this.network.send(actionData);
     }
   }
