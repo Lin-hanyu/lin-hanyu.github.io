@@ -7,7 +7,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="纸上战争">
 <meta name="theme-color" content="#FCF9F2">
-<link rel="manifest" href="manifest.json">
 <title>纸上战争 - 回合制战略游戏</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -750,8 +749,22 @@ const RTC_ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.voiparound.com' },
+    { urls: 'stun:stun.voipbuster.com' },
+    { urls: 'stun:stun.voipstunt.com' }
+  ],
+  iceCandidatePoolSize: 2
+};
+
+const RTC_ICE_SERVERS_TURN = {
+  iceServers: [
+    ...RTC_ICE_SERVERS.iceServers,
     { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'], username: 'openrelayproject', credential: 'openrelayproject' }
-  ]
+  ],
+  iceCandidatePoolSize: 2
 };
 
 class NetworkManager {
@@ -771,11 +784,18 @@ class NetworkManager {
     return 1 + this.connectedPeers; // 含自己
   }
 
+  _createPC() {
+    const pc = new RTCPeerConnection(RTC_ICE_SERVERS);
+    pc._iceCandidates = [];
+    pc._iceStartTime = Date.now();
+    return pc;
+  }
+
   // 房主：为一个新的加入者生成 offer，返回 { offer, index }
   async createOffer() {
     this.isHost = true;
     const idx = this.peers.length;
-    const pc = new RTCPeerConnection(RTC_ICE_SERVERS);
+    const pc = this._createPC();
     const dc = pc.createDataChannel('game', { ordered: true });
     const peer = { pc, dc, connected: false, index: idx };
     this.peers.push(peer);
@@ -783,7 +803,8 @@ class NetworkManager {
     this._setupICEFn(pc, idx);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await this._waitForIceGathering(pc);
+    await this._waitForIceGathering(pc, idx);
+    console.log('[Host] Offer peer=' + idx + ' ICE候选=' + pc._iceCandidates.length + ' ' + pc._iceCandidates.map(c => c.type || '?').join('/'));
     return { offer: JSON.stringify(pc.localDescription), index: idx };
   }
 
@@ -791,7 +812,7 @@ class NetworkManager {
   async createAnswer(offerStr) {
     this.isHost = false;
     const offer = JSON.parse(offerStr);
-    const pc = new RTCPeerConnection(RTC_ICE_SERVERS);
+    const pc = this._createPC();
     const peer = { pc, dc: null, connected: false, index: 0 };
     this.peers = [peer];
     pc.ondatachannel = (e) => {
@@ -802,7 +823,8 @@ class NetworkManager {
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
-    await this._waitForIceGathering(pc);
+    await this._waitForIceGathering(pc, 0);
+    console.log('[Joiner] Answer ICE候选=' + pc._iceCandidates.length + ' ' + pc._iceCandidates.map(c => c.type || '?').join('/'));
     return JSON.stringify(pc.localDescription);
   }
 
@@ -812,15 +834,18 @@ class NetworkManager {
     if (!peer) throw new Error('无效的连接索引');
     const answer = JSON.parse(answerStr);
     await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+    console.log('[Host] 已应用peer=' + index + '的Answer');
   }
 
   _setupDC(peer, idx) {
     peer.dc.onopen = () => {
       peer.connected = true;
+      console.log('[DC] 打开! peer=' + idx + ' 耗时=' + (Date.now() - peer.pc._iceStartTime) + 'ms');
       if (this.onConnectedCallback) this.onConnectedCallback(idx);
     };
     peer.dc.onclose = () => {
       peer.connected = false;
+      console.log('[DC] 关闭 peer=' + idx);
       if (this.onDisconnectedCallback) this.onDisconnectedCallback(idx);
     };
     peer.dc.onmessage = (e) => {
@@ -829,24 +854,45 @@ class NetworkManager {
   }
 
   _setupICEFn(pc, idx) {
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        pc._iceCandidates.push(e.candidate);
+        console.log('[ICE] 候选 peer=' + idx + ' ' + e.candidate.type + ' ' + (e.candidate.address || '') + ':' + (e.candidate.port || ''));
+      }
+    };
     pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      const st = pc.iceConnectionState;
+      console.log('[ICE] 状态 peer=' + idx + ': ' + st);
+      if (st === 'connected' || st === 'completed') {
+        console.log('[ICE] ✓ 连接成功 peer=' + idx);
+      }
+      if (st === 'failed') {
+        console.error('[ICE] ✗ 连接失败 peer=' + idx + ' (ICE无法建立，可能需要TURN中继)');
+      }
+      if (st === 'disconnected' || st === 'failed') {
         const peer = this.peers[idx];
-        if (peer && peer.connected && this.onDisconnectedCallback) {
-          peer.connected = false;
-          this.onDisconnectedCallback(idx);
+        if (peer) {
+          setTimeout(() => {
+            if (peer.pc && peer.pc.iceConnectionState === 'failed' && peer.connected) {
+              peer.connected = false;
+              if (this.onDisconnectedCallback) this.onDisconnectedCallback(idx);
+            }
+          }, 5000);
         }
       }
     };
   }
 
-  _waitForIceGathering(pc) {
+  _waitForIceGathering(pc, idx) {
     return new Promise((resolve) => {
-      if (pc.iceGatheringState === 'complete') { resolve(); return; }
+      if (pc.iceGatheringState === 'complete') { console.log('[ICE] Gathering完成 peer=' + idx + ' 候选=' + pc._iceCandidates.length); resolve(); return; }
       pc.onicegatheringstatechange = () => {
-        if (pc.iceGatheringState === 'complete') resolve();
+        if (pc.iceGatheringState === 'complete') { console.log('[ICE] Gathering完成 peer=' + idx + ' 候选=' + pc._iceCandidates.length); resolve(); }
       };
-      setTimeout(resolve, 5000);
+      setTimeout(() => {
+        console.log('[ICE] Gathering超时 peer=' + idx + ' 候选=' + pc._iceCandidates.length);
+        resolve();
+      }, 8000);
     });
   }
 
@@ -1080,6 +1126,7 @@ class Game {
       document.getElementById('onlineSetupChoices').style.display = 'none';
       document.getElementById('onlineCreateBtn').style.display = 'none';
       this._buildHostExchangeUI();
+      document.getElementById('lobbyStatus').textContent = '已生成连接信息。发送给对方→粘贴回复→点确认（按F12查看ICE日志）';
       this._setupOnlineDataHandler();
       // 监听玩家连接
       this.network.onConnected((peerIdx) => {
@@ -1121,7 +1168,7 @@ class Game {
       document.getElementById('roomJoinArea').style.display = 'none';
       document.getElementById('answerText').value = answerStr;
       document.getElementById('answerDisplayArea').style.display = '';
-      document.getElementById('lobbyStatus').textContent = '将上面的连接信息发给房主，等待房主确认...';
+      document.getElementById('lobbyStatus').textContent = '将上面的连接信息发给房主，等待房主确认...（按F12查看ICE日志）';
       this._setupOnlineDataHandler();
       this.network.onConnected(() => {
         document.getElementById('lobbyStatus').textContent = '已连接！等待房主开始游戏...';
