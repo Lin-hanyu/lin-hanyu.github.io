@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="纸上战争">
+<meta name="apple-mobile-web-app-title" content="纸上江山">
 <meta name="theme-color" content="#FCF9F2">
-<title>纸上战争 - 回合制战略游戏</title>
+<title>纸上江山 - 局域网联机</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -340,6 +340,7 @@
     #aiThinkingOverlay { top: 30px !important; bottom: 42px !important; }
     #aiLog { width: 150px !important; right: 2px !important; max-height: 200px !important; font-size: 10px !important; }
     #aiLogBody { max-height: 170px !important; }
+    #editorBar .ed-tool { font-size: 10px !important; padding: 3px 5px !important; }
   }
 
   /* AI 日志面板 */
@@ -417,17 +418,35 @@
   .btn-sm { font-size: 13px; padding: 6px 16px; margin: 6px; }
   .ed-tool {
     font-family: 'Microsoft YaHei', sans-serif !important;
-    font-size: 13px !important;
-    padding: 6px 10px !important;
+    font-size: 12px !important;
+    padding: 4px 7px !important;
     border: 1px solid #666 !important;
-    border-radius: 6px !important;
+    border-radius: 5px !important;
     background: #e8dcc8;
     color: #333;
     cursor: pointer;
     white-space: nowrap;
   }
   .ed-tool.active { border-color: #e67e22 !important; background: #f5d6a8 !important; box-shadow: 0 0 8px #e67e22; }
+  .btn-map-edit {
+    font-family: 'Microsoft YaHei', sans-serif !important;
+    font-size: 12px !important;
+    letter-spacing: 0px !important;
+    background: #b8a080 !important;
+    border: 1px solid #8b7355 !important;
+    color: #3a2a1a !important;
+    border-radius: 3px !important;
+    padding: 4px 8px !important;
+  }
+  #editorBar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: none; background: #e0d5c0; border-top: 1px solid #8b7355;
+    padding: 4px 6px; z-index: 9999; align-items: center;
+    flex-wrap: wrap; justify-content: center; gap: 3px;
+  }
+  #editorBar.show { display: flex; }
 </style>
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
 
@@ -438,7 +457,7 @@
   <div id="playerSelectOverlay" style="display:flex;">
     <!-- 模式选择画面 -->
     <div id="modeSelectScreen">
-      <h1>纸上战争</h1>
+      <h1>纸上江山</h1>
       <div class="mode-select-group">
         <button class="btn mode-btn" onclick="game.selectGameMode('local')">
           <span class="mode-icon">⚔</span>
@@ -449,8 +468,8 @@
           <span class="mode-title">AI对战</span>
         </button>
         <button class="btn mode-btn" onclick="game.selectGameMode('online')">
-          <span class="mode-icon">🌐</span>
-          <span class="mode-title">多人对战</span>
+          <span class="mode-icon">🏠</span>
+          <span class="mode-title">局域网联机</span>
         </button>
       </div>
     </div>
@@ -466,8 +485,10 @@
       </div>
       <br>
       <button class="btn btn-back" onclick="game.backToModeSelect()">返回</button>
-      <button class="btn btn-start" onclick="game.openMapEditor()" style="background:#b8a080;border-color:#8b7355;">🗺️ 绘制地图</button>
-      <button class="btn btn-start" onclick="game.startGame()">开始游戏</button>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-start" onclick="game.startGame()">开始游戏</button>
+        <button class="btn btn-start btn-map-edit" onclick="game.openMapEditor()">🗺 绘制</button>
+      </div>
     </div>
 
     <!-- AI 对战设置 -->
@@ -488,18 +509,27 @@
       <p id="aiSetupDesc"></p>
       <br>
       <button class="btn btn-back" onclick="game.backToModeSelect()">返回</button>
-      <button class="btn btn-start" onclick="game.openMapEditor()" style="background:#b8a080;border-color:#8b7355;">🗺️ 绘制地图</button>
-      <button class="btn btn-start" onclick="game.startGame()">开始游戏</button>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-start" onclick="game.startGame()">开始游戏</button>
+        <button class="btn btn-start btn-map-edit" onclick="game.openMapEditor()">🗺 绘制</button>
+      </div>
     </div>
 
-    <!-- 联机大厅 -->
+    <!-- 局域网联机大厅 -->
     <div id="onlineLobbyScreen" style="display:none;">
-      <h1>多人对战</h1>
-      <div id="onlineNameRow" style="display:none;">
-        <input type="text" id="onlineNameInput" placeholder="输入你的昵称" maxlength="8" style="color:#333;caret-color:#333;">
+      <h1>局域网联机</h1>
+      <!-- 第一步：创建或加入 -->
+      <div id="onlineMainButtons">
+        <button class="btn btn-start" onclick="game.showHostSetup()">创建房间</button>
+        <button class="btn btn-start" onclick="game.showJoinSetup()">加入房间</button>
         <br>
+        <button class="btn btn-back" onclick="game.backToModeSelect()" style="margin-top:8px;">返回</button>
       </div>
-      <div id="onlineSetupChoices" style="display:none;">
+      <!-- 第二步：房主设置（昵称+人数） -->
+      <div id="onlineHostSetup" style="display:none;">
+        <p style="font-size:13px;">昵称</p>
+        <input type="text" id="onlineNameInput" placeholder="输入你的昵称" maxlength="6" style="width:140px;padding:5px 10px;font-size:14px;text-align:center;color:#333;background:#f5f0e8;border:1px solid #8b7355;border-radius:4px;">
+        <br><br>
         <p>选择真人数量</p>
         <div class="player-count-group" id="onlinePlayerCountGroup">
           <button class="btn" id="ol2" onclick="game.selectOnlinePlayerCount(2)">2 真人</button>
@@ -514,29 +544,50 @@
           <button class="btn" id="olAI3" onclick="game.selectOnlineAICount(3)">3 AI</button>
         </div>
         <p id="onlineSetupDesc" style="font-size:13px;"></p>
-        <button class="btn btn-start" onclick="game.openMapEditor()" style="background:#b8a080;border-color:#8b7355;font-size:14px;margin-bottom:8px;">🗺️ 绘制地图</button>
+        <div style="display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;">
+          <button class="btn btn-start" onclick="game.createRoom()">创建</button>
+          <button class="btn btn-map-edit" onclick="game.openMapEditor()" style="background:#5D4E37;border-color:#8B7355;font-size:13px;padding:6px 14px;">🗺 绘制</button>
+        </div>
         <br>
+        <button class="btn btn-back" onclick="game.leaveLobby()">返回</button>
       </div>
-      <button id="onlineCreateBtn" class="btn btn-start" onclick="game.createRoom()" style="display:none;">创建</button>
-      <div id="onlineMainButtons">
-        <button class="btn btn-start" onclick="game.createRoom()">创建房间</button>
-        <button class="btn btn-start" onclick="game.showJoinRoom()">加入房间</button>
+      <!-- 第二步：加入者设置（昵称+房间码） -->
+      <div id="onlineJoinSetup" style="display:none;">
+        <p style="font-size:13px;">昵称</p>
+        <input type="text" id="onlineJoinNameInput" placeholder="输入你的昵称" maxlength="6" style="width:140px;padding:5px 10px;font-size:14px;text-align:center;color:#333;background:#f5f0e8;border:1px solid #8b7355;border-radius:4px;">
+        <br><br>
+        <p style="font-size:13px;color:#6b5a4a;">输入4位房间码</p>
+        <input type="text" id="roomCodeInput" placeholder="例如 1234" maxlength="4" inputmode="numeric" style="width:100px;padding:6px 10px;font-size:20px;text-align:center;color:#333;background:#f5f0e8;border:1px solid #8b7355;border-radius:4px;letter-spacing:6px;font-family:monospace;">
+        <br><br>
+        <button class="btn btn-start" onclick="game.joinRoom()">加入</button>
+        <button class="btn btn-back" onclick="game.leaveLobby()">返回</button>
+      </div>
+      <!-- 房间大厅：等待玩家 -->
+      <div id="roomLobbyArea" style="display:none; margin-top:12px;">
+        <p style="font-size:13px;color:#6b5a4a;">房间码</p>
+        <div id="roomCodeDisplay" style="font-size:40px;font-family:monospace;letter-spacing:14px;color:#4a3520;margin:4px 0;">0000</div>
+        <p style="font-size:12px;color:#8b6914;">把房间码发给好友加入</p>
+        <div id="onlinePlayerList" style="font-size:14px;color:#4a3520;margin:8px 0;"></div>
+        <div id="lobbyStatus" class="lobby-status"></div>
         <br>
+        <button class="btn btn-start" id="btnStartOnline" onclick="game.hostStartGame()" style="display:none;">开始游戏</button>
+        <button class="btn btn-back" onclick="game.leaveLobby()">离开房间</button>
       </div>
-      <div id="roomJoinArea" style="display:none; margin-top:12px;">
-        <textarea id="offerInput" placeholder="在此粘贴房主发来的连接信息" style="width:90%;height:60px;font-size:10px;color:#333;resize:none;background:#f5f0e8;"></textarea>
-        <br><button class="btn btn-start" onclick="game.joinRoom()">连接</button>
-      </div>
-      <div id="answerDisplayArea" style="display:none; margin-top:12px;">
-        <p style="font-size:12px;color:#A0522D;">将下面的连接信息发给房主：</p>
-        <textarea id="answerText" readonly style="width:90%;height:60px;font-size:10px;color:#333;resize:none;background:#f5f0e8;"></textarea>
-        <br><button class="btn btn-copy" onclick="game.copyAnswer()" style="margin-right:4px;">复制</button>
-      </div>
-      <div id="hostExchangeArea" style="display:none; margin-top:8px;"></div>
-      <div id="lobbyStatus" class="lobby-status"></div>
-      <br>
-      <button class="btn btn-back" onclick="game.leaveLobby()">返回</button>
     </div>
+  </div>
+
+  <!-- 地图编辑器工具栏（底部，不遮挡canvas） -->
+  <div id="editorBar" class="editor-bar">
+    <button id="btCity" class="btn ed-tool active" onclick="game.setEditTool('city')">🏙 城</button>
+    <button id="btRiver" class="btn ed-tool" onclick="game.setEditTool('river')">🌊 河</button>
+    <button id="btBridge" class="btn ed-tool" onclick="game.setEditTool('bridge')">🌉 桥</button>
+    <button id="btMtn" class="btn ed-tool" onclick="game.setEditTool('mountain')">⛰ 山</button>
+    <button id="btMtnCity" class="btn ed-tool" onclick="game.setEditTool('mountainCity')">🏔 山城</button>
+    <button class="btn ed-tool" onclick="game.undoEdit()">↩</button>
+    <button class="btn ed-tool" onclick="game.clearEditMap()">🗑</button>
+    <span id="editStats" style="font-size:10px;color:#4a3520;margin:0 4px;">0城</span>
+    <button class="btn ed-tool" onclick="game.closeMapEditor()" style="background:#c0392b;color:#fff;">✕</button>
+    <button class="btn ed-tool" onclick="game.saveCustomMap()" style="background:#27ae60;color:#fff;font-weight:bold;">✓</button>
   </div>
 
   <div id="topBar" style="display:none;">
@@ -586,7 +637,7 @@
 
   <!-- 放置皇帝提示（透明，不拦截点击） -->
   <div id="emperorPrompt">
-    <h2 id="emperorTitle">纸上战争</h2>
+    <h2 id="emperorTitle">纸上江山</h2>
     <p id="emperorText">玩家 1 (红色) - 请点击一座空城放置皇帝</p>
   </div>
 
@@ -779,177 +830,125 @@ function pointOnMountain(px, py, mtn) {
   return inside;
 }
 
-// ==================== 联机网络层（WebRTC 手动信令，无需服务器） ====================
-const RTC_ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.voiparound.com' },
-    { urls: 'stun:stun.voipbuster.com' },
-    { urls: 'stun:stun.voipstunt.com' }
-  ],
-  iceCandidatePoolSize: 2
-};
-
-const RTC_ICE_SERVERS_TURN = {
-  iceServers: [
-    ...RTC_ICE_SERVERS.iceServers,
-    { urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'], username: 'openrelayproject', credential: 'openrelayproject' }
-  ],
-  iceCandidatePoolSize: 2
-};
-
+// ==================== 联机网络层（WebSocket 信令 + 房间码） ====================
+// ==================== 联机网络层（PeerJS 信令，无需服务器） ====================
 class NetworkManager {
   constructor() {
+    this.myPeer = null;
+    this.myIndex = 0;
     this.myName = '';
     this.isHost = false;
-    this.peers = [];         // [{ pc, dc, connected }] ，房主多个，加入者1个
+    this.peers = [];           // [{ dc, connected, index }]
     this.onDataCallback = null;
-    this.onConnectedCallback = null;   // cb(peerIndex)
-    this.onDisconnectedCallback = null; // cb(peerIndex)
+    this.onConnectedCallback = null;
+    this.onDisconnectedCallback = null;
+    this.onRoomCreatedCallback = null;
+    this.onPeerJoinedCallback = null;
+    this.onStatusCallback = null;
   }
 
   get connectedPeers() {
     return this.peers.filter(p => p.connected).length;
   }
   get totalConnected() {
-    return 1 + this.connectedPeers; // 含自己
+    return 1 + this.connectedPeers;
   }
 
-  _createPC() {
-    const pc = new RTCPeerConnection(RTC_ICE_SERVERS);
-    pc._iceCandidates = [];
-    pc._iceStartTime = Date.now();
-    return pc;
+  _status(msg) {
+    console.log('[net]', msg);
+    if (this.onStatusCallback) this.onStatusCallback(msg);
   }
 
-  // 房主：为一个新的加入者生成 offer，返回 { offer, index }
-  async createOffer() {
+  // 房主：创建房间
+  createRoom(code) {
     this.isHost = true;
-    const idx = this.peers.length;
-    const pc = this._createPC();
-    const dc = pc.createDataChannel('game', { ordered: true });
-    const peer = { pc, dc, connected: false, index: idx };
-    this.peers.push(peer);
-    this._setupDC(peer, idx);
-    this._setupICEFn(pc, idx);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await this._waitForIceGathering(pc, idx);
-    console.log('[Host] Offer peer=' + idx + ' ICE候选=' + pc._iceCandidates.length + ' ' + pc._iceCandidates.map(c => c.type || '?').join('/'));
-    return { offer: JSON.stringify(pc.localDescription), index: idx };
-  }
-
-  // 加入者：用房主的 offer 生成 answer
-  async createAnswer(offerStr) {
-    this.isHost = false;
-    const offer = JSON.parse(offerStr);
-    const pc = this._createPC();
-    const peer = { pc, dc: null, connected: false, index: 0 };
-    this.peers = [peer];
-    pc.ondatachannel = (e) => {
-      peer.dc = e.channel;
-      this._setupDC(peer, 0);
-    };
-    this._setupICEFn(pc, 0);
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    await this._waitForIceGathering(pc, 0);
-    console.log('[Joiner] Answer ICE候选=' + pc._iceCandidates.length + ' ' + pc._iceCandidates.map(c => c.type || '?').join('/'));
-    return JSON.stringify(pc.localDescription);
-  }
-
-  // 房主：用加入者的 answer 完成连接，index 指定是哪个 peer
-  async applyAnswer(answerStr, index) {
-    const peer = this.peers[index];
-    if (!peer) throw new Error('无效的连接索引');
-    const answer = JSON.parse(answerStr);
-    await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
-    console.log('[Host] 已应用peer=' + index + '的Answer');
-  }
-
-  _setupDC(peer, idx) {
-    peer.dc.onopen = () => {
-      peer.connected = true;
-      console.log('[DC] 打开! peer=' + idx + ' 耗时=' + (Date.now() - peer.pc._iceStartTime) + 'ms');
-      if (this.onConnectedCallback) this.onConnectedCallback(idx);
-    };
-    peer.dc.onclose = () => {
-      peer.connected = false;
-      console.log('[DC] 关闭 peer=' + idx);
-      if (this.onDisconnectedCallback) this.onDisconnectedCallback(idx);
-    };
-    peer.dc.onmessage = (e) => {
-      if (this.onDataCallback) this.onDataCallback(JSON.parse(e.data), idx);
-    };
-  }
-
-  _setupICEFn(pc, idx) {
-    pc.onicecandidate = (e) => {
-      if (e.candidate) {
-        pc._iceCandidates.push(e.candidate);
-        console.log('[ICE] 候选 peer=' + idx + ' ' + e.candidate.type + ' ' + (e.candidate.address || '') + ':' + (e.candidate.port || ''));
-      }
-    };
-    pc.oniceconnectionstatechange = () => {
-      const st = pc.iceConnectionState;
-      console.log('[ICE] 状态 peer=' + idx + ': ' + st);
-      if (st === 'connected' || st === 'completed') {
-        console.log('[ICE] ✓ 连接成功 peer=' + idx);
-      }
-      if (st === 'failed') {
-        console.error('[ICE] ✗ 连接失败 peer=' + idx + ' (ICE无法建立，可能需要TURN中继)');
-      }
-      if (st === 'disconnected' || st === 'failed') {
-        const peer = this.peers[idx];
-        if (peer) {
-          setTimeout(() => {
-            if (peer.pc && peer.pc.iceConnectionState === 'failed' && peer.connected) {
-              peer.connected = false;
-              if (this.onDisconnectedCallback) this.onDisconnectedCallback(idx);
-            }
-          }, 5000);
-        }
-      }
-    };
-  }
-
-  _waitForIceGathering(pc, idx) {
-    return new Promise((resolve) => {
-      if (pc.iceGatheringState === 'complete') { console.log('[ICE] Gathering完成 peer=' + idx + ' 候选=' + pc._iceCandidates.length); resolve(); return; }
-      pc.onicegatheringstatechange = () => {
-        if (pc.iceGatheringState === 'complete') { console.log('[ICE] Gathering完成 peer=' + idx + ' 候选=' + pc._iceCandidates.length); resolve(); }
-      };
-      setTimeout(() => {
-        console.log('[ICE] Gathering超时 peer=' + idx + ' 候选=' + pc._iceCandidates.length);
-        resolve();
-      }, 8000);
+    this.myIndex = 0;
+    this.roomCode = code;
+    this.peerId = 'pw-' + code;
+    this._status('创建房间中...');
+    this.myPeer = new Peer(this.peerId, { debug: 0 });
+    this.myPeer.on('open', () => {
+      this._status('房间已创建');
+      if (this.onRoomCreatedCallback) this.onRoomCreatedCallback(code);
+    });
+    this.myPeer.on('connection', (dc) => {
+      const idx = this.peers.length;
+      const peer = { dc, connected: false, index: idx };
+      this.peers.push(peer);
+      this._setupDC(peer, idx);
+      if (this.onPeerJoinedCallback) this.onPeerJoinedCallback(idx);
+    });
+    this.myPeer.on('error', (err) => {
+      this._status('错误: ' + err.message);
     });
   }
 
-  // 发送数据。excludeIndex：不发给该索引的 peer（用于 host relay 避免回路）
+  // 加入者：加入房间
+  joinRoom(code) {
+    this.isHost = false;
+    this.myIndex = 0;
+    this.roomCode = code;
+    this.peerId = 'pw-join-' + code + '-' + Date.now();
+    this._status('正在加入...');
+    this.myPeer = new Peer(this.peerId, { debug: 0 });
+    this.myPeer.on('open', () => {
+      this._status('连接房间中...');
+      const dc = this.myPeer.connect('pw-' + code, { reliable: true });
+      const peer = { dc, connected: false, index: 0 };
+      this.peers = [peer];
+      this._setupDC(peer, 0);
+    });
+    this.myPeer.on('error', (err) => {
+      this._status('加入失败: ' + err.message);
+      // 同步到UI
+      const el = document.getElementById('lobbyStatus');
+      if (el) el.textContent = '加入失败: ' + err.message;
+    });
+  }
+
+  _setupDC(peer, idx) {
+    peer.dc.on('open', () => {
+      peer.connected = true;
+      if (this.onConnectedCallback) this.onConnectedCallback(idx);
+      if (!this.isHost && this.onPeerJoinedCallback) this.onPeerJoinedCallback(idx);
+    });
+    peer.dc.on('close', () => {
+      peer.connected = false;
+      if (this.onDisconnectedCallback) this.onDisconnectedCallback(idx);
+    });
+    peer.dc.on('data', (data) => {
+      if (this.onDataCallback) this.onDataCallback(JSON.parse(data), idx);
+    });
+  }
+
   send(data, excludeIndex) {
     for (const peer of this.peers) {
-      if (peer.connected && peer.dc && peer.dc.readyState === 'open' && peer.index !== excludeIndex) {
+      if (peer.connected && peer.dc && peer.dc.open && peer.index !== excludeIndex) {
         peer.dc.send(JSON.stringify(data));
       }
+    }
+  }
+
+  sendTo(data, targetIndex) {
+    const peer = this.peers.find(p => p.index === targetIndex);
+    if (peer && peer.connected && peer.dc && peer.dc.open) {
+      peer.dc.send(JSON.stringify(data));
     }
   }
 
   onConnected(cb) { this.onConnectedCallback = cb; }
   onData(cb) { this.onDataCallback = cb; }
   onDisconnected(cb) { this.onDisconnectedCallback = cb; }
+  onRoomCreated(cb) { this.onRoomCreatedCallback = cb; }
+  onPeerJoined(cb) { this.onPeerJoinedCallback = cb; }
+  onStatus(cb) { this.onStatusCallback = cb; }
 
   disconnect() {
     for (const peer of this.peers) {
       if (peer.dc) peer.dc.close();
-      if (peer.pc) peer.pc.close();
     }
     this.peers = [];
+    if (this.myPeer) { this.myPeer.destroy(); this.myPeer = null; }
   }
 }
 
@@ -1080,7 +1079,10 @@ class Game {
       this.selectAIHumanCount(1);
     } else if (mode === 'online') {
       document.getElementById('onlineLobbyScreen').style.display = 'block';
-      document.getElementById('lobbyStatus').textContent = '房主创建房间→生成连接信息→发给对方→对方粘贴连接';
+      document.getElementById('onlineMainButtons').style.display = '';
+      document.getElementById('onlineHostSetup').style.display = 'none';
+      document.getElementById('onlineJoinSetup').style.display = 'none';
+      document.getElementById('roomLobbyArea').style.display = 'none';
       this.onlineTotalPlayers = 2;
       this.onlineAICount = 0;
       this.selectOnlinePlayerCount(2);
@@ -1133,216 +1135,179 @@ class Game {
     document.getElementById('aiLog').style.display = 'none';
   }
 
-  // === 联机大厅 ===
-  async createRoom() {
-    const choices = document.getElementById('onlineSetupChoices');
-    if (choices.style.display === 'none') {
-      document.getElementById('onlineMainButtons').style.display = 'none';
-      choices.style.display = '';
-      document.getElementById('onlineCreateBtn').style.display = '';
-      document.getElementById('onlineNameRow').style.display = '';
-      document.getElementById('roomJoinArea').style.display = 'none';
-      return;
-    }
-    const name = document.getElementById('onlineNameInput').value.trim() || '玩家';
-    document.getElementById('lobbyStatus').textContent = '正在生成连接信息...';
-    try {
-      this.network = new NetworkManager();
-      this.network.myName = name;
-      this.myPlayerIndex = 0;
-      // 为每个加入者生成一个 offer
-      const joinerCount = this.onlineTotalPlayers - 1;
-      this._hostOffers = [];
-      for (let i = 0; i < joinerCount; i++) {
-        const { offer, index } = await this.network.createOffer();
-        this._hostOffers.push({ offer, index, peerIdx: index, connected: false });
-      }
-      // 隐藏设置，显示动态交换区域
-      document.getElementById('onlineNameRow').style.display = 'none';
-      document.getElementById('onlineSetupChoices').style.display = 'none';
-      document.getElementById('onlineCreateBtn').style.display = 'none';
-      this._buildHostExchangeUI();
-      document.getElementById('lobbyStatus').textContent = '已生成连接信息。发送给对方→粘贴回复→点确认（按F12查看ICE日志）';
-      this._setupOnlineDataHandler();
-      // 监听玩家连接
-      this.network.onConnected((peerIdx) => {
-        const o = this._hostOffers.find(x => x.peerIdx === peerIdx);
-        if (o) o.connected = true;
-        document.getElementById('lobbyStatus').textContent = '玩家' + (peerIdx + 2) + ' 已连接！(' + this.network.totalConnected + '/' + this.onlineTotalPlayers + ')';
-        this._buildHostExchangeUI();
-        if (this.network.totalConnected >= this.onlineTotalPlayers) {
-          this._showStartButton();
-        }
-      });
-    } catch (e) {
-      console.error('[createRoom error]', e);
-      document.getElementById('lobbyStatus').textContent = '创建失败：' + e.message;
-    }
-  }
+  // === 联机大厅（PeerJS 信令 + 4位房间码） ===
+  _genRoomCode() { return String(1000 + Math.floor(Math.random() * 9000)); }
 
-  showJoinRoom() {
+  showHostSetup() {
     document.getElementById('onlineMainButtons').style.display = 'none';
-    document.getElementById('onlineCreateBtn').style.display = 'none';
-    document.getElementById('hostExchangeArea').style.display = 'none';
-    document.getElementById('onlineNameRow').style.display = '';
-    document.getElementById('onlineSetupChoices').style.display = 'none';
-    document.getElementById('roomJoinArea').style.display = 'block';
+    document.getElementById('onlineHostSetup').style.display = '';
   }
 
-  async joinRoom() {
-    const offerStr = document.getElementById('offerInput').value.trim();
-    if (offerStr.length < 10) { document.getElementById('lobbyStatus').textContent = '请先粘贴房主发来的连接信息'; return; }
-    const name = document.getElementById('onlineNameInput').value.trim() || '玩家';
-    document.getElementById('lobbyStatus').textContent = '正在连接...';
-    try {
-      this.network = new NetworkManager();
-      this.network.myName = name;
-      await this.network.createAnswer(offerStr);
-      this.myPlayerIndex = 1; // 默认，后续 room_info 更新
-      const answerStr = JSON.stringify(this.network.peers[0].pc.localDescription);
-      document.getElementById('onlineNameRow').style.display = 'none';
-      document.getElementById('roomJoinArea').style.display = 'none';
-      document.getElementById('answerText').value = answerStr;
-      document.getElementById('answerDisplayArea').style.display = '';
-      document.getElementById('lobbyStatus').textContent = '将上面的连接信息发给房主，等待房主确认...（按F12查看ICE日志）';
-      this._setupOnlineDataHandler();
-      this.network.onConnected(() => {
-        document.getElementById('lobbyStatus').textContent = '已连接！等待房主开始游戏...';
-      });
-    } catch (e) {
-      console.error('[joinRoom error]', e);
-      document.getElementById('lobbyStatus').textContent = '加入失败：' + e.message;
-    }
+  showJoinSetup() {
+    document.getElementById('onlineMainButtons').style.display = 'none';
+    document.getElementById('onlineJoinSetup').style.display = '';
   }
 
-  _buildHostExchangeUI() {
-    const container = document.getElementById('hostExchangeArea');
-    container.style.display = '';
-    let html = '';
-    for (const o of this._hostOffers) {
-      const n = o.peerIdx + 2;
-      if (o.connected) {
-        html += '<p style="color:#4a7c4a;font-size:13px;">✓ 玩家' + n + '已连接</p>';
+  createRoom() {
+    const total = this.onlineTotalPlayers;
+    this.myPlayerIndex = 0;
+    const code = this._genRoomCode();
+    const name = document.getElementById('onlineNameInput').value.trim() || '房主';
+    document.getElementById('onlineHostSetup').style.display = 'none';
+    document.getElementById('roomLobbyArea').style.display = '';
+    document.getElementById('roomCodeDisplay').textContent = '----';
+    document.getElementById('btnStartOnline').style.display = 'none';
+    document.getElementById('lobbyStatus').textContent = '正在创建房间...';
+    this.network = new NetworkManager();
+    this.network.myName = name;
+    this._setupOnlineDataHandler();
+    this.network.onRoomCreated((c) => {
+      document.getElementById('roomCodeDisplay').textContent = code;
+      document.getElementById('lobbyStatus').textContent = '等待玩家加入...（1/' + total + ' 人，告知对方房间码）';
+      this._updateLanPlayerList();
+    });
+    this.network.onPeerJoined((idx) => {
+      this._updateLanPlayerList();
+    });
+    this.network.onConnected((idx) => {
+      const connected = this.network.totalConnected;
+      // 发送 room_info 给新加入的玩家（告知其序号和当前人数）
+      this.network.sendTo({ type: 'room_info', current: connected, total: total, yourIndex: idx + 1 }, idx);
+      // 通知其他已连接玩家（排除新来的）
+      if (connected > 2) {
+        this.network.send({ type: 'room_info', current: connected, total: total }, idx);
+      }
+      this._updateLanPlayerList();
+      if (connected >= total) {
+        document.getElementById('btnStartOnline').style.display = '';
+        document.getElementById('lobbyStatus').textContent = '全部到齐！可以开始游戏了';
       } else {
-        html += '<div style="margin-bottom:8px;border:1px solid #c4b59a;padding:6px;border-radius:3px;">';
-        html += '<p style="font-size:12px;color:#A0522D;margin:0 0 4px 0;">发给玩家' + n + '的连接信息：</p>';
-        html += '<textarea id="offerText_' + o.peerIdx + '" readonly style="width:90%;height:40px;font-size:10px;color:#333;resize:none;background:#f5f0e8;">' + o.offer + '</textarea>';
-        html += '<br><button class="btn btn-copy" onclick="game.copyOffer(' + o.peerIdx + ')" style="margin-right:4px;font-size:12px;">复制</button>';
-        html += '<br><p style="font-size:11px;color:#666;margin:4px 0 2px 0;">粘贴玩家' + n + '的回复：</p>';
-        html += '<textarea id="answerInput_' + o.peerIdx + '" placeholder="粘贴玩家' + n + '回复的连接信息" style="width:90%;height:40px;font-size:10px;color:#333;resize:none;background:#f5f0e8;"></textarea>';
-        html += '<br><button class="btn btn-start" onclick="game.completeConnection(' + o.peerIdx + ')" style="font-size:13px;padding:4px 12px;">确认玩家' + n + '</button>';
-        html += '</div>';
+        document.getElementById('lobbyStatus').textContent = '新玩家加入！(' + connected + '/' + total + ')';
+      }
+    });
+    this.network.onDisconnected(() => {
+      if (this.state === 'playing') this.setActionText('对手断开连接！');
+      this._updateLanPlayerList();
+    });
+    this.network.createRoom(code);
+  }
+
+  hostStartGame() {
+    this.network.send({ type: 'start_game' });
+    this.startOnlineGame();
+  }
+
+  joinRoom() {
+    const code = document.getElementById('roomCodeInput').value.trim();
+    if (code.length !== 4) { alert('请输入4位房间码'); return; }
+    const name = document.getElementById('onlineJoinNameInput').value.trim() || '玩家';
+    document.getElementById('onlineJoinSetup').style.display = 'none';
+    document.getElementById('roomLobbyArea').style.display = '';
+    document.getElementById('roomCodeDisplay').textContent = code;
+    document.getElementById('btnStartOnline').style.display = 'none';
+    document.getElementById('lobbyStatus').textContent = '正在加入房间...';
+    this.network = new NetworkManager();
+    this.network.myName = name;
+    this._setupOnlineDataHandler();
+    this.network.onConnected(() => {
+      document.getElementById('lobbyStatus').textContent = '已连接！等待房主开始游戏...';
+      this._updateLanPlayerList();
+    });
+    this.network.onPeerJoined(() => { this._updateLanPlayerList(); });
+    this.network.onDisconnected(() => {
+      if (this.state === 'playing') this.setActionText('对手断开连接！');
+      const el = document.getElementById('lobbyStatus');
+      if (el) el.textContent = '连接断开';
+    });
+    this.network.joinRoom(code);
+  }
+
+  _updateLanPlayerList() {
+    if (!this.network) return;
+    const el = document.getElementById('onlinePlayerList');
+    if (!el) return;
+    const total = this.onlineTotalPlayers;
+    let html = '<div>✓ 你</div>';
+    for (const peer of this.network.peers) {
+      const n = peer.index + 2;
+      if (peer.connected) {
+        html += '<div style="color:#27ae60;">✓ 玩家' + n + '</div>';
+      } else {
+        html += '<div style="color:#999;">○ 玩家' + n + ' (连接中...)</div>';
       }
     }
-    container.innerHTML = html;
-  }
-
-  copyOffer(idx) {
-    const el = document.getElementById('offerText_' + idx);
-    if (!el) return;
-    el.select();
-    document.execCommand('copy');
-    navigator.clipboard.writeText(el.value).catch(() => {});
-    document.getElementById('lobbyStatus').textContent = '已复制！发给玩家' + (idx + 2) + '吧';
-  }
-
-  async completeConnection(idx) {
-    const answerStr = document.getElementById('answerInput_' + idx).value.trim();
-    if (answerStr.length < 10) { document.getElementById('lobbyStatus').textContent = '请先粘贴玩家' + (idx + 2) + '的连接信息'; return; }
-    document.getElementById('lobbyStatus').textContent = '正在连接玩家' + (idx + 2) + '...';
-    try {
-      await this.network.applyAnswer(answerStr, idx);
-    } catch (e) {
-      console.error('[completeConnection error]', e);
-      document.getElementById('lobbyStatus').textContent = '连接失败：' + e.message;
+    const connected = 1 + this.network.peers.filter(p => p.connected).length;
+    for (let i = connected; i < total; i++) {
+      html += '<div style="color:#999;">○ 等待加入...</div>';
     }
-  }
-
-  _showStartButton() {
-    const oldBtn = document.getElementById('btnStartOnline');
-    if (oldBtn) oldBtn.remove();
-    const btn = document.createElement('button');
-    btn.id = 'btnStartOnline';
-    btn.className = 'btn btn-start';
-    btn.textContent = '开始游戏';
-    btn.onclick = () => { btn.remove(); this.network.send({ type: 'start_game' }); this.startOnlineGame(); };
-    document.getElementById('onlineLobbyScreen').appendChild(btn);
-  }
-
-  copyAnswer() {
-    const el = document.getElementById('answerText');
-    el.select();
-    document.execCommand('copy');
-    navigator.clipboard.writeText(el.value).catch(() => {});
-    document.getElementById('lobbyStatus').textContent = '已复制！发给房主吧';
+    el.innerHTML = html;
   }
 
   _setupOnlineDataHandler() {
     this.network.onData((data, srcIdx) => {
-      if (data.type === 'start_game') {
-        this.startOnlineGame();
+      // 加入者：收到 room_info 后更新自己的序号和当前人数
+      if (data.type === 'room_info') {
+        if (data.yourIndex !== undefined) this.myPlayerIndex = data.yourIndex;
+        document.getElementById('lobbyStatus').textContent = '已加入房间（' + data.current + '/' + data.total + ' 人），等待房主开始...';
         return;
       }
+      if (data.type === 'start_game') { this.startOnlineGame(); return; }
       if (data.type === 'map') {
         this.cities = data.mapData.cities;
         this.mountains = data.mapData.mountains;
         this.rivers = data.mapData.rivers;
         if (data.config) this._onlineConfig = data.config;
+        if (data.myPlayerIndex !== undefined) this.myPlayerIndex = data.myPlayerIndex;
         this._onlineMapReceived = true;
-        return;
-      }
-      if (data.type === 'room_info') {
-        if (data.yourIndex !== undefined) this.myPlayerIndex = data.yourIndex;
+        // 如果游戏已启动（start_game 先到达），立即刷新地图
+        if (this._onlineGameStarted) this.render();
         return;
       }
       if (!this._onlineGameStarted) return;
       this._handleRemoteAction(data, srcIdx);
     });
-    this.network.onDisconnected((peerIdx) => {
-      if (this.state === 'playing') this.setActionText('玩家' + (peerIdx + 2) + '断开连接！');
-    });
   }
 
   leaveLobby() {
-    if (document.getElementById('onlineMainButtons').style.display === 'none') {
-      if (this.network) { this.network.disconnect(); this.network = null; }
-      document.getElementById('onlineMainButtons').style.display = '';
-      document.getElementById('onlineCreateBtn').style.display = 'none';
-      document.getElementById('onlineNameRow').style.display = 'none';
-      document.getElementById('onlineSetupChoices').style.display = 'none';
-      document.getElementById('roomJoinArea').style.display = 'none';
-      document.getElementById('hostExchangeArea').style.display = 'none';
-      document.getElementById('answerDisplayArea').style.display = 'none';
-      document.getElementById('lobbyStatus').textContent = '房主创建房间→生成连接信息→发给对方→对方粘贴连接';
-      this._hostOffers = [];
-      const oldBtn = document.getElementById('btnStartOnline');
-      if (oldBtn) oldBtn.remove();
-      return;
-    }
     if (this.network) { this.network.disconnect(); this.network = null; }
-    this._hostOffers = [];
-    this.backToModeSelect();
+    this.myPlayerIndex = 0;
+    this._onlineGameStarted = false;
+    document.getElementById('onlineMainButtons').style.display = '';
+    document.getElementById('onlineHostSetup').style.display = 'none';
+    document.getElementById('onlineJoinSetup').style.display = 'none';
+    document.getElementById('roomLobbyArea').style.display = 'none';
+    document.getElementById('btnStartOnline').style.display = 'none';
+    document.getElementById('lobbyStatus').textContent = '';
+    document.getElementById('onlinePlayerList').innerHTML = '';
   }
 
   startOnlineGame() {
     this._onlineGameStarted = true;
     document.getElementById('playerSelectOverlay').style.display = 'none';
+    document.getElementById('onlineLobbyScreen').style.display = 'none';
     document.getElementById('topBar').style.display = '';
     document.getElementById('btnQuit').style.display = '';
     document.getElementById('bottomBar').style.display = '';
     this.state = 'playing';
 
     if (this.myPlayerIndex === 0) {
-      // 主机：初始化玩家并发送地图
+      // 主机：立即知道配置，初始化玩家并发送地图
       const total = this.onlineTotalPlayers + this.onlineAICount;
       const aiCount = this.onlineAICount;
       this._initOnlinePlayers(total, aiCount);
       this._menuMapGenerated = false;
       this.generateMap();
       const mapData = { cities: this.cities, mountains: this.mountains, rivers: this.rivers };
-      this.network.send({ type: 'map', mapData: mapData, name: this.network.myName, config: { total: total, ai: aiCount } });
+      let joinIdx = 1;
+      for (const peer of this.network.peers) {
+        if (peer.connected) {
+          this.network.sendTo({ type: 'map', mapData: mapData, myPlayerIndex: joinIdx, config: { total, ai: aiCount } }, peer.index);
+          joinIdx++;
+        }
+      }
       this._onlineMapReceived = true;
     } else {
+      // 非主机：等收到 map（含 config）后再初始化玩家
       this._onlineMapReceived = this.cities.length > 0 && !!this._onlineConfig;
     }
 
@@ -1644,29 +1609,28 @@ class Game {
 
   // ==================== 地图编辑器 ====================
   openMapEditor() {
-    // 清空背景地图，显示空地
     this._savedMap = { cities: this.cities, mountains: this.mountains, rivers: this.rivers, state: this.state, camera: { ...this.camera } };
     this.cities = []; this.mountains = []; this.rivers = []; this.state = 'editing';
-    // 重置摄像机到默认视角
     this.camera = { x: 0, y: 0, zoom: 1 };
     this._edit = {
       cities: [], rivers: [], bridges: [], mountains: [], mountainCities: [],
       tool: 'city', drawing: false, history: []
     };
     document.getElementById('mapEditorOverlay').style.display = 'block';
+    document.getElementById('editorBar').classList.add('show');
     document.getElementById('playerSelectOverlay').style.display = 'none';
     document.getElementById('topBar').style.display = 'none';
     document.getElementById('bottomBar').style.display = 'none';
-    document.getElementById('edWidth').value = this.canvas.width;
-    document.getElementById('edHeight').value = this.canvas.height;
+    document.getElementById('canvasWrap').style.paddingBottom = '36px';
     this.setEditTool('city');
     this._editRender();
   }
 
   closeMapEditor() {
     document.getElementById('mapEditorOverlay').style.display = 'none';
+    document.getElementById('editorBar').classList.remove('show');
+    document.getElementById('canvasWrap').style.paddingBottom = '';
     document.getElementById('playerSelectOverlay').style.display = 'flex';
-    // 恢复背景地图（包括摄像机）
     if (this._savedMap) {
       this.cities = this._savedMap.cities;
       this.mountains = this._savedMap.mountains;
@@ -1678,24 +1642,13 @@ class Game {
     this._edit = null;
   }
 
-  resizeEditCanvas() {
-    const w = parseInt(document.getElementById('edWidth').value) || 1200;
-    const h = parseInt(document.getElementById('edHeight').value) || 750;
-    this.canvas.width = w; this.canvas.height = h;
-    this.ctx = this.canvas.getContext('2d');
-    document.getElementById('edWidth').value = w;
-    document.getElementById('edHeight').value = h;
-    document.getElementById('editHint').textContent = '画布: ' + w + '×' + h + ' | 点击放置城池｜长按拖拽画河流/山';
-    this._editRender();
-  }
-
   setEditTool(tool) {
     this._edit.tool = tool;
-    document.querySelectorAll('.ed-tool').forEach(b => b.classList.remove('active'));
-    const map = { city: 'edToolCity', river: 'edToolRiver', bridge: 'edToolBridge', mountain: 'edToolMtn', mountainCity: 'edToolMtnCity' };
+    document.querySelectorAll('#editorBar .ed-tool').forEach(b => b.classList.remove('active'));
+    const map = { city: 'btCity', river: 'btRiver', bridge: 'btBridge', mountain: 'btMtn', mountainCity: 'btMtnCity' };
     const el = document.getElementById(map[tool]);
     if (el) el.classList.add('active');
-    const hints = { city: '点击地图放置城池', river: '在地图上长按拖拽画河流', bridge: '点击河流上放置桥', mountain: '长按拖拽画出山轮廓', mountainCity: '长按拖拽画出有城池的山' };
+    const hints = { city: '点击放置城池', river: '长按拖拽画河流', bridge: '点击河流上放桥', mountain: '长按拖拽画山', mountainCity: '长按拖拽画山城' };
     document.getElementById('editHint').textContent = hints[tool] || '';
   }
 
@@ -1769,14 +1722,17 @@ class Game {
       }
     }
 
+    // 保存自定义地图数据（_applyCustomMap 会补全 id/hp/owner 等字段）
     this.customMap = { cities: customCities, rivers: customRivers, mountains: customMountains };
+    // 清空 cities，让 startGame/startOnlineGame 调用 generateMap → _applyCustomMap 生成完整数据结构
+    this.cities = [];
+    this.mountains = [];
+    this.rivers = [];
     document.getElementById('mapEditorOverlay').style.display = 'none';
+    document.getElementById('editorBar').classList.remove('show');
+    document.getElementById('canvasWrap').style.paddingBottom = '';
     document.getElementById('playerSelectOverlay').style.display = 'flex';
-    // 恢复背景地图
     if (this._savedMap) {
-      this.cities = this._savedMap.cities;
-      this.mountains = this._savedMap.mountains;
-      this.rivers = this._savedMap.rivers;
       this.state = this._savedMap.state;
       this.camera = this._savedMap.camera || { x: 0, y: 0, zoom: 1 };
       this._savedMap = null;
@@ -1808,8 +1764,8 @@ class Game {
     ctx.strokeRect(1, 1, W - 2, H - 2);
     const e = this._edit;
     // 统计
-    const s = e.cities.length + '城 ' + e.rivers.length + '河 ' + e.bridges.length + '桥 ' + e.mountains.length + '山 ' + e.mountainCities.length + '山城';
-    document.getElementById('editStats').textContent = s;
+    const stats = document.getElementById('editStats');
+    if (stats) stats.textContent = e.cities.length + '城 ' + e.rivers.length + '河 ' + e.bridges.length + '桥 ' + e.mountains.length + '山 ' + e.mountainCities.length + '山城';
 
     // 河流 — 与游戏一致
     for (const r of e.rivers) {
@@ -2013,11 +1969,17 @@ class Game {
         this.rivers.push({ id: this.rivers.length, points: r.points.map(p => ({ x: p.x, y: p.y })), width: 55, bridges: r.bridges || [] });
       }
     }
-    // 山
+    // 山 — 补全山体中心、高度、绳子属性
     let mtnId = 0;
     for (const m of this.customMap.mountains) {
       if (m.points && m.points.length >= 3) {
-        this.mountains.push({ id: mtnId++, points: m.points.map(p => ({ x: p.x, y: p.y })) });
+        const pts = m.points.map(p => ({ x: p.x, y: p.y }));
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const minY = Math.min(...pts.map(p => p.y));
+        const maxY = Math.max(...pts.map(p => p.y));
+        const h = maxY - minY || 40;
+        const cy = minY + h / 2;
+        this.mountains.push({ id: mtnId++, points: pts, x: cx, y: cy, h: h, hasRope: false });
       }
     }
     this.customMap = null;
@@ -2771,24 +2733,27 @@ class Game {
       this.dragStart = null; this.dragCurrent = null; this.render(); return false;
     }
 
-    // 河流处理：兵线绝对不能穿过河流，只能从桥上过
-    for (const river of this.rivers) {
-      if (this.lineCrossesRiver(points[0], points[1], river)) {
-        // 检查是否经过桥
-        let crossedBridge = false;
-        for (const br of river.bridges) {
-          // 兵线端点离桥25px以内，视为从桥上过
-          if (Math.hypot(destX - br.x, destY - br.y) < 50 ||
-              Math.hypot(points[0].x - br.x, points[0].y - br.y) < 50 ||
-              lineCircleMinDist(points[0].x, points[0].y, destX, destY, br.x, br.y) < 40) {
-            crossedBridge = true;
-            break;
+    // 河流处理：水军（shipId存在）可从河上岸，不拦
+    const isShipTroop = start.originType === 'ship' || (targetTroop && targetTroop.shipId != null);
+    if (!isShipTroop) {
+      for (const river of this.rivers) {
+        if (this.lineCrossesRiver(points[0], points[1], river)) {
+          // 检查是否经过桥
+          let crossedBridge = false;
+          for (const br of river.bridges) {
+            // 兵线端点离桥25px以内，视为从桥上过
+            if (Math.hypot(destX - br.x, destY - br.y) < 50 ||
+                Math.hypot(points[0].x - br.x, points[0].y - br.y) < 50 ||
+                lineCircleMinDist(points[0].x, points[0].y, destX, destY, br.x, br.y) < 40) {
+              crossedBridge = true;
+              break;
+            }
           }
-        }
-        if (!crossedBridge) {
-          this.setActionText('兵线不能穿过河流！请从桥上通过');
-          if (this.aiThinking) this.aiLog('err', '兵线试图穿河，取消');
-          this.dragStart = null; this.dragCurrent = null; this.render(); return false;
+          if (!crossedBridge) {
+            this.setActionText('兵线不能穿过河流！请从桥上通过');
+            if (this.aiThinking) this.aiLog('err', '兵线试图穿河，取消');
+            this.dragStart = null; this.dragCurrent = null; this.render(); return false;
+          }
         }
       }
     }
@@ -2994,23 +2959,21 @@ class Game {
       }
     }
 
-    // 3. 粮线判断
-    if (!hitSomething) {
-      for (let si = this.supplyLines.length - 1; si >= 0; si--) {
-        const sl = this.supplyLines[si];
-        if (sl.owner === this.currentPlayer) continue;
-        if (this.pathCrossesLines(pts, sl.points, 30)) {
-          hitSomething = true;
-          sl.hp -= troop.atk;
-          if (sl.hp <= 0) {
-            this.supplyLines.splice(si, 1);
-            this.setActionText('切断敌方粮线！');
+    // 3. 粮线判断（不受hitSomething限制，独立检测）
+    for (let si = this.supplyLines.length - 1; si >= 0; si--) {
+      const sl = this.supplyLines[si];
+      if (sl.owner === this.currentPlayer) continue;
+      if (this.pathCrossesLines(pts, sl.points, 30)) {
+        hitSomething = true;
+        sl.hp -= troop.atk;
+        if (sl.hp <= 0) {
+          this.supplyLines.splice(si, 1);
+          this.setActionText('切断敌方粮线！');
           } else {
             this.setActionText(`攻击粮线！剩余血量: ${sl.hp}`);
           }
           break;
         }
-      }
     }
 
     // 4. 引线判断（独立检测，不受hitSomething影响）
@@ -3128,14 +3091,14 @@ class Game {
   checkCombat() {
     this.combatEvents = [];
 
-    // 阶段1：收集所有交战对
+    // 收集交战对（存 ref 不存 index，避免 splice 后索引错乱）
     const pairs = [];
     for (let i = 0; i < this.troops.length; i++) {
-      if (this.troops[i].hp <= 0) continue;
+      const t1 = this.troops[i];
+      if (t1.hp <= 0) continue;
       for (let j = i + 1; j < this.troops.length; j++) {
-        if (this.troops[j].hp <= 0) continue;
-        const t1 = this.troops[i], t2 = this.troops[j];
-        if (t1.owner === t2.owner) continue;
+        const t2 = this.troops[j];
+        if (t2.hp <= 0 || t1.owner === t2.owner) continue;
 
         let intersectPt = null;
         let minDist = Infinity;
@@ -3157,7 +3120,8 @@ class Game {
           }
         }
 
-        const COMBAT_DIST = 15;
+        // 只有真正靠近（<6px）或线段交叉才算交战
+        const COMBAT_DIST = 6;
         if (!found && minDist >= COMBAT_DIST) continue;
 
         if (!intersectPt) {
@@ -3171,7 +3135,7 @@ class Game {
           }
         }
 
-        pairs.push({ i, j, point: intersectPt });
+        pairs.push({ t1, t2, point: intersectPt });
         this.combatEvents.push({
           point: intersectPt,
           t1: { owner: t1.owner, atk: t1.atk },
@@ -3181,20 +3145,33 @@ class Game {
       }
     }
 
-    // 阶段2：同时结算ATK
+    // 同时结算ATK + 撤退（引用对象，splice后仍正确）
     for (const p of pairs) {
-      this.troops[p.i].hp -= this.troops[p.j].atk;
-      this.troops[p.j].hp -= this.troops[p.i].atk;
-    }
-
-    // 阶段3：HP<=0的兵线撤退
-    for (const p of pairs) {
-      this._retreatTroopIfDead(p.i);
-      this._retreatTroopIfDead(p.j);
+      if (p.t1.hp <= 0 || p.t2.hp <= 0) continue;
+      p.t1.hp -= p.t2.atk;
+      p.t2.hp -= p.t1.atk;
+      this._retreatTroopIfDeadRef(p.t1);
+      this._retreatTroopIfDeadRef(p.t2);
     }
   }
 
-  // 兵线撤退：HP<=0时兵线缩回到上次出兵位置
+  _retreatTroopIfDeadRef(troop) {
+    if (!troop || troop.hp > 0) return;
+    const currentSegs = troop.points.length - 1;
+    if (currentSegs <= 1) {
+      this._destroyCavalryByTroop(troop);
+      const idx = this.troops.indexOf(troop);
+      if (idx >= 0) this.troops.splice(idx, 1);
+      this.setActionText(`${CONFIG.COLOR_NAMES[troop.owner]}兵线撤退！`);
+    } else {
+      troop.points.pop();
+      troop.segCount = Math.max(1, (troop.segCount || currentSegs) - 1);
+      troop.hp = troop.type === 'cavalry' ? CONFIG.CAVALRY_HP : CONFIG.TROOP_HP;
+      this.setActionText(`${CONFIG.COLOR_NAMES[troop.owner]}兵线被击败，撤回上次位置！`);
+    }
+  }
+
+  // 兵线撤退（旧接口，兼容现有调用）
   _retreatTroopIfDead(idx) {
     const troop = this.troops[idx];
     if (!troop || troop.hp > 0) return;
@@ -3230,6 +3207,37 @@ class Game {
     if (oldOwner !== null && oldOwner !== undefined) {
       const oldPlayer = this.players[oldOwner];
       oldPlayer.cities = oldPlayer.cities.filter(id => id !== city.id);
+
+      // 摧毁被占城的工厂
+      this.factories = this.factories.filter(f => f.cityId !== city.id);
+      oldPlayer.factories = oldPlayer.factories.filter(fid => {
+        const f = this.factories.find(x => x.id === fid);
+        return f && f.cityId !== city.id;
+      });
+
+      // 原主失去所有城→清除其无城工厂
+      if (oldPlayer.cities.length === 0) {
+        this.factories = this.factories.filter(f => f.owner !== oldOwner);
+        oldPlayer.factories = [];
+      }
+
+      // 连接此城的原主兵线回退
+      for (const troop of this.troops) {
+        if (troop.owner !== oldOwner || troop.hp <= 0) continue;
+        const pts = troop.points;
+        if (pts.length < 2) continue;
+        const d0 = Math.hypot(pts[0].x - city.x, pts[0].y - city.y);
+        const dN = Math.hypot(pts[pts.length - 1].x - city.x, pts[pts.length - 1].y - city.y);
+        if (d0 < 45) {
+          pts.shift();
+          if (pts.length === 0) { troop.hp = 0; }
+        } else if (dN < 45) {
+          pts.pop();
+          if (pts.length === 0) { troop.hp = 0; }
+        }
+      }
+      this.troops = this.troops.filter(t => t.hp > 0 && t.points.length >= 2);
+
       if (city.hasEmperor) {
         city.hasEmperor = false;
         oldPlayer.emperorCityId = null;
@@ -3242,6 +3250,7 @@ class Game {
         this.cannons = this.cannons.filter(c => c.owner !== oldOwner);
         this.cavalryUnits = this.cavalryUnits.filter(cv => cv.owner !== oldOwner);
         this.supplyLines = this.supplyLines.filter(sl => sl.owner !== oldOwner);
+        this.wires = this.wires.filter(w => w.owner !== oldOwner);
         for (const c of this.cities) {
           if (c.owner === oldOwner) { c.owner = null; c.hp = 1; c.hasEmperor = false; }
         }
@@ -3305,8 +3314,13 @@ class Game {
         const count = this.ships.filter(s => s.dockId === dock.id).length;
         const offset = 20 + count * 18;
         const side = count % 2 === 0 ? 1 : -1;
-        const sx = dock.x + Math.cos(angle) * offset * side;
-        const sy = dock.y + Math.sin(angle) * offset * side;
+        let sx = dock.x + Math.cos(angle) * offset * side;
+        let sy = dock.y + Math.sin(angle) * offset * side;
+        // 确保船在河上：如果不靠近河流，往河方向拉回
+        if (!this.rivers.some(r => pointNearRiver(sx, sy, r, 50))) {
+          sx = dock.x + Math.cos(angle) * 8 * side; // 缩小偏移
+          sy = dock.y + Math.sin(angle) * 8 * side;
+        }
         const spawnX = sx + Math.cos(angle) * 12 * side;
         const spawnY = sy + Math.sin(angle) * 12 * side;
         this.ships.push({ id: this.ships.length, dockId: dock.id, x: sx, y: sy, owner: this.currentPlayer, spawnX, spawnY });
@@ -4682,7 +4696,7 @@ class Game {
 
 // ==================== AI 对战系统 ====================
 
-const SYSTEM_PROMPT = '你是纸上战争游戏的AI玩家。你可以每回合执行多个操作（2-5个），先攻击后建设。\n\n' +
+const SYSTEM_PROMPT = '你是纸上江山游戏的AI玩家。你可以每回合执行多个操作（2-5个），先攻击后建设。\n\n' +
 '## 核心规则\n' +
 '- 每个己方城池最多同时存在3条兵线\n' +
 '- 地图有河流（蓝色），兵线不能穿过河流，必须走桥过河\n' +
@@ -4908,24 +4922,7 @@ const game = new Game();
 
 <!-- 地图编辑器 -->
 <div id="mapEditorOverlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;z-index:2000;pointer-events:none;">
-  <!-- 工具栏 -->
-  <div style="position:absolute;bottom:4px;left:50%;transform:translateX(-50%);display:flex;gap:4px;flex-wrap:wrap;justify-content:center;max-width:96%;pointer-events:auto;">
-    <input type="number" id="edWidth" value="1200" min="400" max="2000" step="50" style="width:55px;font-size:11px;padding:2px;text-align:center;border:1px solid #999;border-radius:4px;" title="画布宽度">
-    <span style="color:#fff;font-size:11px;line-height:26px;">×</span>
-    <input type="number" id="edHeight" value="750" min="300" max="1500" step="50" style="width:55px;font-size:11px;padding:2px;text-align:center;border:1px solid #999;border-radius:4px;" title="画布高度">
-    <button class="btn ed-tool" onclick="game.resizeEditCanvas()" style="background:#7f8c8d;color:#fff;">↺ 调整</button>
-    <button id="edToolCity" class="btn ed-tool active" onclick="game.setEditTool('city')" style="background:#8B7355;color:#fff;">🏙 城</button>
-    <button id="edToolRiver" class="btn ed-tool" onclick="game.setEditTool('river')">🌊 河</button>
-    <button id="edToolBridge" class="btn ed-tool" onclick="game.setEditTool('bridge')">🌉 桥</button>
-    <button id="edToolMtn" class="btn ed-tool" onclick="game.setEditTool('mountain')">⛰ 山</button>
-    <button id="edToolMtnCity" class="btn ed-tool" onclick="game.setEditTool('mountainCity')">🏔 山城</button>
-    <button class="btn ed-tool" onclick="game.undoEdit()">↩</button>
-    <button class="btn ed-tool" onclick="game.clearEditMap()" style="background:#c0392b;color:#fff;">清空</button>
-    <button class="btn ed-tool" onclick="game.saveCustomMap()" style="background:#27ae60;color:#fff;font-weight:bold;">✓ 保存</button>
-  </div>
   <div id="editHint" style="position:absolute;top:4px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:3px 12px;border-radius:12px;font-size:11px;pointer-events:none;white-space:nowrap;">点击放置城池｜长按拖拽画河流/山</div>
-  <div id="editStats" style="position:absolute;top:4px;right:8px;color:#fff;font-size:11px;background:rgba(0,0,0,0.6);padding:2px 8px;border-radius:8px;pointer-events:none;"></div>
-  <button onclick="game.closeMapEditor()" style="position:absolute;top:4px;left:8px;background:rgba(0,0,0,0.6);color:#fff;border:none;padding:3px 8px;border-radius:6px;font-size:11px;cursor:pointer;pointer-events:auto;">✕ 取消</button>
 </div>
 
 </body>
