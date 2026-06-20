@@ -2671,15 +2671,25 @@ class Game {
     const dx = end.x - start.x, dy = end.y - start.y;
     const length = Math.hypot(dx, dy);
     const MAX_LEN = 250;
-    const maxLen = Math.min(length, MAX_LEN);
+    let maxLen = Math.min(length, MAX_LEN);
     if (maxLen < 20) {
       if (this.aiThinking) this.aiLog('err', `出兵线长度太短(${Math.round(maxLen)}px)，取消`);
       this.dragStart = null; this.dragCurrent = null; this.render(); return false;
     }
 
-    const angle = Math.atan2(dy, dx);
-    let destX = start.x + Math.cos(angle) * maxLen;
-    let destY = start.y + Math.sin(angle) * maxLen;
+    // 拉弓式出兵：射击方向 = 拖拽反方向
+    let shootAngle = Math.atan2(dy, dx) + Math.PI;
+
+    // 40% 概率：方向偏离 3-20°，距离增减 5-10
+    if (Math.random() < 0.4) {
+      const angleDev = (3 + Math.random() * 17) * Math.PI / 180; // 3-20° 转弧度
+      shootAngle += Math.random() < 0.5 ? angleDev : -angleDev;
+      const lenMod = (5 + Math.random() * 5) * (Math.random() < 0.5 ? 1 : -1); // ±5-10
+      maxLen = Math.max(20, Math.min(MAX_LEN, maxLen + lenMod));
+    }
+
+    let destX = start.x + Math.cos(shootAngle) * maxLen;
+    let destY = start.y + Math.sin(shootAngle) * maxLen;
 
     const isEndExtend = (start.originType === 'troop' && start.isTroopEnd);
     let targetTroop = null;
@@ -3764,7 +3774,7 @@ class Game {
     const touchHint = this.isMobile ? '长按' : '右键';
     const clickHint = this.isMobile ? '点击' : '左键点击';
 
-    if (mode === 'troop') this.setActionText(`${touchHint}拖拽从城池/兵线出兵`);
+    if (mode === 'troop') this.setActionText(`${touchHint}源头朝反方向拖拽出兵`);
     else if (mode === 'factory') this.setActionText(`${clickHint}你的城池建造工厂`);
     else if (mode === 'rope') this.setActionText(`${clickHint}山体修建绳子`);
     else if (mode === 'dock') this.setActionText(`${clickHint}河流修建码头`);
@@ -4138,8 +4148,18 @@ class Game {
           ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
         }
       } else {
-        ctx.strokeStyle = CONFIG.COLORS[this.currentPlayer]; ctx.lineWidth = 3; ctx.setLineDash([5, 5]);
-        ctx.beginPath(); ctx.moveTo(this.dragStart.x, this.dragStart.y); ctx.lineTo(this.dragCurrent.x, this.dragCurrent.y); ctx.stroke(); ctx.setLineDash([]);
+        // 拉弓式出兵：只画拖拽线，射击方向隐含在反向中
+        const sx = this.dragStart.x, sy = this.dragStart.y;
+        const ex = this.dragCurrent.x, ey = this.dragCurrent.y;
+        const len = Math.min(Math.hypot(ex - sx, ey - sy), 250);
+        if (len > 15) {
+          ctx.strokeStyle = CONFIG.COLORS[this.currentPlayer]; ctx.lineWidth = 2; ctx.globalAlpha = 0.4;
+          ctx.setLineDash([4, 6]);
+          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        } else {
+          ctx.strokeStyle = CONFIG.COLORS[this.currentPlayer]; ctx.lineWidth = 3; ctx.setLineDash([5, 5]);
+          ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke(); ctx.setLineDash([]);
+        }
       }
     }
 
@@ -4330,8 +4350,12 @@ class Game {
         const src = myCities[Math.floor(Math.random() * myCities.length)];
         const cx = CONFIG.MAP_W / 2 + (Math.random() - 0.5) * 400;
         const cy = CONFIG.MAP_H / 2 + (Math.random() - 0.5) * 300;
+        // 拉弓式：dragCurrent 放在目标反方向
+        const _blindAngle = Math.atan2(cy - src.y, cx - src.x);
+        const _blindPull = _blindAngle + Math.PI;
+        const _blindDist = Math.min(Math.hypot(cy - src.y, cx - src.x), 250);
         this.dragStart = { x: src.x, y: src.y, origin: src, originType: 'city', originTroopId: null, isTroopEnd: false };
-        this.dragCurrent = { x: cx, y: cy };
+        this.dragCurrent = { x: src.x + Math.cos(_blindPull) * _blindDist, y: src.y + Math.sin(_blindPull) * _blindDist };
         const ok = this.finishTroopDeploy();
         if (ok) {
           this.aiLog('ok', '盲出兵成功');
@@ -4489,8 +4513,11 @@ class Game {
               actionOk = false;
               break;
             }
-            // 先试AI想要的方向
-            this.dragStart = src; this.dragCurrent = { x: p.toX, y: p.toY };
+            // 先试AI想要的方向（拉弓式：dragCurrent 放在源头反方向）
+            const _aiAngle = Math.atan2(p.toY - src.y, p.toX - src.x);
+            const _aiPull = _aiAngle + Math.PI;
+            const _aiDist = Math.min(Math.hypot(p.toY - src.y, p.toX - src.x), 250);
+            this.dragStart = src; this.dragCurrent = { x: src.x + Math.cos(_aiPull) * _aiDist, y: src.y + Math.sin(_aiPull) * _aiDist };
             let ok = this.finishTroopDeploy();
             if (ok) {
               endedTurn = true;
@@ -4502,10 +4529,13 @@ class Game {
               let found = false;
               for (let k = 0; k < 8 && !found; k++) {
                 const offset = ((k + 1) % 2 === 0 ? 1 : -1) * Math.floor((k + 1) / 2) * 0.6;
-                const a = baseAngle + offset;
+                const a = _aiAngle + offset;
                 const tx = src.x + Math.cos(a) * Math.min(dist, 200);
                 const ty = src.y + Math.sin(a) * Math.min(dist, 200);
-                this.dragStart = src; this.dragCurrent = { x: tx, y: ty };
+                // 拉弓式：dragCurrent 放在反方向
+                const _retryPull = Math.atan2(ty - src.y, tx - src.x) + Math.PI;
+                const _retryDist = Math.hypot(ty - src.y, tx - src.x);
+                this.dragStart = src; this.dragCurrent = { x: src.x + Math.cos(_retryPull) * _retryDist, y: src.y + Math.sin(_retryPull) * _retryDist };
                 ok = this.finishTroopDeploy();
                 if (ok) {
                   endedTurn = true; found = true;
