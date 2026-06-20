@@ -15,12 +15,12 @@
     background: #FCF9F2;
     overflow: hidden;
     font-family: 'Microsoft YaHei', sans-serif;
-    height: 100dvh;
+    height: 100%;
   }
   #gameContainer {
     position: relative;
     width: 100vw;
-    height: 100dvh;
+    height: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -318,7 +318,7 @@
 
   /* ==================== 移动端适配 ==================== */
   @media (max-width: 768px), (max-height: 600px), (orientation: portrait) {
-    #gameContainer { width: 100vw !important; height: 100dvh !important; display: flex !important; flex-direction: column !important; }
+    #gameContainer { width: 100vw !important; height: 100% !important; display: flex !important; flex-direction: column !important; }
     #canvasWrap { flex: 1 1 auto !important; min-height: 0 !important; display: flex !important; align-items: center !important; justify-content: center !important; overflow: hidden !important; }
     #topBar { padding: 4px 8px !important; font-size: 11px !important; }
     #topBar .colorDot { width: 12px !important; height: 12px !important; }
