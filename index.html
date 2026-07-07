@@ -1070,6 +1070,7 @@ class Game {
   selectGameMode(mode) {
     this.gameMode = mode;
     document.getElementById('modeSelectScreen').style.display = 'none';
+    document.getElementById('downloadFloatBtn').style.display = 'none';
     if (mode === 'local') {
       document.getElementById('localSetupScreen').style.display = 'block';
       this.selectedPlayerCount = 4;
@@ -1126,6 +1127,7 @@ class Game {
     if (this.network) { this.network.disconnect(); this.network = null; }
     document.getElementById('playerSelectOverlay').style.display = 'flex';
     document.getElementById('modeSelectScreen').style.display = 'block';
+    document.getElementById('downloadFloatBtn').style.display = '';
     document.getElementById('localSetupScreen').style.display = 'none';
     document.getElementById('aiSetupScreen').style.display = 'none';
     document.getElementById('onlineLobbyScreen').style.display = 'none';
@@ -3902,6 +3904,7 @@ class Game {
     this.selectedCannon = null; this.selectedCity = null;
     document.getElementById('playerSelectOverlay').style.display = 'flex';
     document.getElementById('modeSelectScreen').style.display = 'block';
+    document.getElementById('downloadFloatBtn').style.display = '';
     document.getElementById('localSetupScreen').style.display = 'none';
     document.getElementById('aiSetupScreen').style.display = 'none';
     document.getElementById('onlineLobbyScreen').style.display = 'none';
@@ -4955,8 +4958,8 @@ const game = new Game();
   <div id="editHint" style="position:absolute;top:4px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);color:#fff;padding:3px 12px;border-radius:12px;font-size:11px;pointer-events:none;white-space:nowrap;">点击放置城池｜长按拖拽画河流/山</div>
 </div>
 
-<!-- 下载 APK 入口 -->
-<div style="position:fixed;bottom:10px;right:10px;z-index:9999;font-size:12px;">
+<!-- 下载 APK 入口（仅主页面显示） -->
+<div id="downloadFloatBtn" style="position:fixed;bottom:10px;right:10px;z-index:9999;font-size:12px;">
   <a href="https://lin-hanyu.github.io/paperword.github.io/" target="_blank"
      style="display:inline-flex;align-items:center;gap:4px;
             background:rgba(0,0,0,0.65);color:#e8b85a;
